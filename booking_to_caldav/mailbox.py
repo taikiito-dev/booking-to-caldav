@@ -11,7 +11,7 @@ import email
 import email.policy
 import imaplib
 import re
-import socket
+import select
 import time
 from datetime import date, datetime, timedelta
 from email.header import decode_header, make_header
@@ -186,24 +186,30 @@ class Mailbox:
             raise RuntimeError("server refused IDLE")
 
         stream = connection.socket()
-        previous_timeout = stream.gettimeout()
+        deadline = time.monotonic() + timeout
         arrived = False
-        try:
-            stream.settimeout(timeout)
-            while True:
-                line = connection.readline()
-                if not line:
-                    break
-                if b"EXISTS" in line or b"RECENT" in line:
-                    arrived = True
-                    break
-        except (socket.timeout, TimeoutError, OSError):
-            pass
-        finally:
-            try:
-                stream.settimeout(previous_timeout)
-                connection.send(b"DONE\r\n")
-                connection._command_complete("IDLE", tag)
-            except Exception:
-                pass
+
+        # Wait with select rather than a socket timeout. A timeout raised out
+        # of the buffered reader leaves it unusable — every later read fails
+        # with "cannot read from timed out object" — so the connection has to
+        # be thrown away once per idle window. select lets the window expire
+        # without ever reading, and the connection survives.
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            buffered = getattr(stream, "pending", lambda: 0)()
+            if not buffered:
+                readable, _, _ = select.select([stream], [], [], remaining)
+                if not readable:
+                    break  # window expired with nothing to report
+            line = connection.readline()
+            if not line:
+                break
+            if b"EXISTS" in line or b"RECENT" in line:
+                arrived = True
+                break
+
+        connection.send(b"DONE\r\n")
+        connection._command_complete("IDLE", tag)
         return arrived

@@ -9,3 +9,4 @@ check_overlap.py
 check_ics.py
 count_bookings.py
 check_invites.py
+check_idle.py

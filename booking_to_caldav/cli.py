@@ -31,7 +31,8 @@ REQUIRED = (
     "CALDAV_PASSWORD",
 )
 
-IDLE_SECONDS = 540  # re-issue IDLE well inside the 29 minute limit in RFC 2177
+IDLE_SECONDS = int(os.environ.get("IDLE_SECONDS", "540"))
+"""How long one idle window lasts. RFC 2177 sets a 29 minute ceiling."""
 RECONNECT_SECONDS = 60
 
 

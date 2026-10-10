@@ -103,9 +103,18 @@ an event within seconds without polling. IDLE is re-issued every nine minutes,
 inside the twenty-nine minute limit the RFC sets. Between arrivals the process
 is blocked on a socket read: one open connection, no CPU.
 
-A dropped connection is expected rather than exceptional — servers, networks
-and restarts all end IDLE sessions. The watcher reconnects and re-sweeps, which
-is safe because writes are idempotent.
+The window is waited out with `select`, not a socket timeout. A timeout
+raised out of Python's buffered reader leaves it unusable — every later read
+fails with `cannot read from timed out object` — which costs a reconnect
+every single window and leaves a gap each time. `select` lets the window
+expire without reading at all, so one connection survives indefinitely.
+
+A dropped connection is still expected rather than exceptional — servers,
+networks and restarts all end IDLE sessions. The watcher reconnects and
+re-sweeps, which is safe because writes are idempotent.
+
+`IDLE_SECONDS` overrides the window length, which is mostly useful for
+exercising the expiry path without waiting nine minutes.
 
 ```sh
 sudo useradd --system --home /srv/booking-to-caldav booking-to-caldav
