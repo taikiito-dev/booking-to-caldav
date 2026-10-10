@@ -5,3 +5,4 @@ __pycache__/
 scan.py
 verify.py
 publish_real.py
+check_overlap.py
