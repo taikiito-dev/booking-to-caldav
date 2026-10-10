@@ -1,5 +1,7 @@
 # booking-to-caldav
 
+[![tests](https://github.com/taikiito-dev/booking-to-caldav/actions/workflows/test.yml/badge.svg)](https://github.com/taikiito-dev/booking-to-caldav/actions/workflows/test.yml)
+
 Turns booking confirmation emails into events on a CalDAV calendar.
 
 It connects to a mailbox over IMAP, reads messages without marking them as
@@ -46,6 +48,17 @@ cd booking-to-caldav
 cp .env.example .env
 $EDITOR .env
 ```
+
+There is nothing to install — `python3 -m booking_to_caldav` runs from the
+clone. To put it on the path instead:
+
+```sh
+pipx install git+https://github.com/taikiito-dev/booking-to-caldav
+booking-to-caldav --dry-run
+```
+
+Either way the `.env` read is the one in the directory the command is run
+from, so an installed copy still needs a working directory to be started in.
 
 `.env`:
 
@@ -168,6 +181,8 @@ Attachments are skipped.
    test beside `tests/test_singapore_airlines.py`.
 
 Nothing else needs to change. `Segment` and the iCalendar writer are shared.
+What a pull request is expected to carry is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 If you would rather not write one, open an issue with the redacted email body
 and that is enough to work from. There are two issue forms — one for a sender
@@ -201,6 +216,9 @@ python3 -m unittest discover -s tests -v
 ```
 
 The fixtures are real email layouts with identifying details removed.
+
+The same command runs in CI on Python 3.9 through 3.13, with no install step,
+so a green badge also confirms the project still needs no packages.
 
 ## License
 

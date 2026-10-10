@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "booking-to-caldav"
+version = "0.1.0"
+description = "Turns booking confirmation emails into events on a CalDAV calendar."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Taiki Ito" }]
+keywords = ["caldav", "imap", "calendar", "icalendar", "selfhosted", "radicale"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: No Input/Output (Daemon)",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Communications :: Email",
+  "Topic :: Office/Business :: Scheduling",
+]
+
+# Deliberately empty. Everything used is in the standard library, so a
+# deployment has nothing to resolve, pin or keep patched.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/taikiito-dev/booking-to-caldav"
+Issues = "https://github.com/taikiito-dev/booking-to-caldav/issues"
+Changelog = "https://github.com/taikiito-dev/booking-to-caldav/blob/main/CHANGELOG.md"
+
+[project.scripts]
+booking-to-caldav = "booking_to_caldav.cli:main"
+
+[tool.setuptools]
+packages = ["booking_to_caldav", "booking_to_caldav.parsers"]
