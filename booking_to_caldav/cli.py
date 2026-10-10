@@ -1,10 +1,11 @@
 """Command line entry point.
 
-    python -m booking_to_caldav --dry-run        # print what would be written
-    python -m booking_to_caldav                  # write to the calendar
+    python3 -m booking_to_caldav --dry-run     # print what would be written
+    python3 -m booking_to_caldav               # run once, then exit
+    python3 -m booking_to_caldav --watch       # stay connected, react on arrival
 
-Configuration comes from the environment (see .env.example). Nothing is
-written to the calendar unless the run is not a dry run.
+Configuration comes from the environment (see .env.example). Nothing reaches
+the calendar on a dry run.
 """
 
 from __future__ import annotations
@@ -12,13 +13,14 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .calendar_sink import Calendar
-from .core import UnknownAirport, build_ics
+from .core import Segment, UnknownAirport, build_ics
 from .mailbox import Mailbox
-from .parsers import all_parsers, parse
+from .parsers import Email, all_parsers, parse
 
 REQUIRED = (
     "IMAP_HOST",
@@ -28,6 +30,9 @@ REQUIRED = (
     "CALDAV_USERNAME",
     "CALDAV_PASSWORD",
 )
+
+IDLE_SECONDS = 540  # re-issue IDLE well inside the 29 minute limit in RFC 2177
+RECONNECT_SECONDS = 60
 
 
 def load_env_file(path: Path) -> None:
@@ -42,6 +47,11 @@ def load_env_file(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def log(message: str) -> None:
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"{stamp} {message}", flush=True)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="booking_to_caldav",
@@ -51,6 +61,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="parse and print, write nothing to the calendar",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="stay connected and react when mail arrives (IMAP IDLE)",
     )
     parser.add_argument(
         "--days", type=int, default=30, help="how far back to look (default: 30)"
@@ -67,12 +82,137 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="IMAP folder to read (default: INBOX)",
     )
     parser.add_argument(
+        "--include-past",
+        action="store_true",
+        help="also write flights that have already departed (skipped by default)",
+    )
+    parser.add_argument(
         "--show-ics", action="store_true", help="print the generated iCalendar text"
     )
     parser.add_argument(
         "--list-parsers", action="store_true", help="list registered parsers and exit"
     )
     return parser
+
+
+def collect(messages: list[Email]) -> list[Segment]:
+    segments: list[Segment] = []
+    for message in messages:
+        try:
+            found = parse(message)
+        except UnknownAirport as error:
+            log(f"  skipped {message.subject!r}: {error}")
+            continue
+        if found:
+            log(f"  matched: {message.subject}")
+            segments.extend(found)
+    return segments
+
+
+def publish(
+    segments: list[Segment],
+    calendar: Calendar | None,
+    include_past: bool,
+    show_ics: bool,
+) -> int:
+    """Write segments to the calendar. Returns the number of events written."""
+    now = datetime.now(timezone.utc)
+    written = 0
+
+    for segment in segments:
+        label = (
+            f"{segment.flight} {segment.origin}->{segment.destination} "
+            f"{segment.depart_local:%Y-%m-%d %H:%M} ({segment.booking_ref})"
+        )
+        if not include_past and segment.depart_utc < now:
+            log(f"  past, skipped {label}")
+            continue
+
+        ics = build_ics(segment, now=now)
+        if show_ics:
+            print(ics)
+        if calendar is None:
+            log(f"  would write {label}")
+            continue
+
+        result = calendar.put(segment.uid, ics)
+        if result.ok:
+            written += 1
+            verb = "created" if result.created else "updated"
+        else:
+            verb = "FAILED"
+        log(f"  {verb} {label}  [HTTP {result.status}]")
+
+    return written
+
+
+def open_calendar(dry_run: bool) -> Calendar | None:
+    if dry_run:
+        return None
+    calendar = Calendar(
+        url=os.environ["CALDAV_URL"],
+        username=os.environ["CALDAV_USERNAME"],
+        password=os.environ["CALDAV_PASSWORD"],
+    )
+    status = calendar.check()
+    if status not in (200, 207):
+        raise RuntimeError(
+            f"calendar did not answer PROPFIND as expected (HTTP {status}); "
+            "check CALDAV_URL points at the collection and the credentials are right"
+        )
+    return calendar
+
+
+def run_once(args: argparse.Namespace, calendar: Calendar | None) -> int:
+    with Mailbox(
+        host=os.environ["IMAP_HOST"],
+        port=int(os.environ.get("IMAP_PORT", "993")),
+        username=os.environ["IMAP_USERNAME"],
+        password=os.environ["IMAP_PASSWORD"],
+        folder=args.folder,
+    ) as mailbox:
+        messages = mailbox.recent(days=args.days, limit=args.limit)
+    log(f"examined {len(messages)} message(s) in {args.folder}")
+    segments = collect(messages)
+    if not segments:
+        log("no flight segments found")
+        return 0
+    return publish(segments, calendar, args.include_past, args.show_ics)
+
+
+def run_watch(args: argparse.Namespace, calendar: Calendar | None) -> int:
+    """Open the mailbox once and let the server announce arrivals."""
+    while True:
+        try:
+            with Mailbox(
+                host=os.environ["IMAP_HOST"],
+                port=int(os.environ.get("IMAP_PORT", "993")),
+                username=os.environ["IMAP_USERNAME"],
+                password=os.environ["IMAP_PASSWORD"],
+                folder=args.folder,
+            ) as mailbox:
+                mode = "IDLE" if mailbox.supports_idle else "polling (no IDLE)"
+                log(f"watching {args.folder} via {mode}")
+
+                messages = mailbox.recent(days=args.days, limit=args.limit)
+                log(f"initial sweep: {len(messages)} message(s)")
+                publish(collect(messages), calendar, args.include_past, args.show_ics)
+
+                while True:
+                    arrived = mailbox.wait_for_mail(IDLE_SECONDS)
+                    if not arrived:
+                        continue  # idle window expired; just re-issue
+                    log("mail arrived")
+                    fresh = mailbox.recent(days=1, limit=20)
+                    publish(
+                        collect(fresh), calendar, args.include_past, args.show_ics
+                    )
+        except KeyboardInterrupt:
+            log("stopped")
+            return 0
+        except Exception as error:  # a dropped connection must not end the service
+            log(f"connection problem: {error!r}; reconnecting in {RECONNECT_SECONDS}s")
+            time.sleep(RECONNECT_SECONDS)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,70 +225,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     missing = [name for name in REQUIRED if not os.environ.get(name)]
-    if missing and not (args.dry_run and not _imap_missing(missing)):
+    if missing:
         print(f"missing configuration: {', '.join(missing)}", file=sys.stderr)
         print("copy .env.example to .env and fill it in", file=sys.stderr)
         return 2
 
-    with Mailbox(
-        host=os.environ["IMAP_HOST"],
-        port=int(os.environ.get("IMAP_PORT", "993")),
-        username=os.environ["IMAP_USERNAME"],
-        password=os.environ["IMAP_PASSWORD"],
-        folder=args.folder,
-    ) as mailbox:
-        messages = mailbox.recent(days=args.days, limit=args.limit)
+    try:
+        calendar = open_calendar(args.dry_run)
+    except RuntimeError as error:
+        print(str(error), file=sys.stderr)
+        return 1
 
-    print(f"examined {len(messages)} message(s) in {args.folder}")
+    if args.watch:
+        return run_watch(args, calendar)
 
-    segments = []
-    for message in messages:
-        try:
-            found = parse(message)
-        except UnknownAirport as error:
-            print(f"  skipped {message.subject!r}: {error}", file=sys.stderr)
-            continue
-        if found:
-            print(f"  matched: {message.subject}")
-            segments.extend(found)
-
-    if not segments:
-        print("no flight segments found")
-        return 0
-
-    now = datetime.now(timezone.utc)
-    calendar = None
-    if not args.dry_run:
-        calendar = Calendar(
-            url=os.environ["CALDAV_URL"],
-            username=os.environ["CALDAV_USERNAME"],
-            password=os.environ["CALDAV_PASSWORD"],
-        )
-        status = calendar.check()
-        if status >= 400:
-            print(f"calendar is not reachable (HTTP {status})", file=sys.stderr)
-            return 1
-
-    for segment in segments:
-        label = (
-            f"{segment.flight} {segment.origin}->{segment.destination} "
-            f"{segment.depart_local:%Y-%m-%d %H:%M} ({segment.booking_ref})"
-        )
-        ics = build_ics(segment, now=now)
-        if args.show_ics:
-            print(ics)
-        if calendar is None:
-            print(f"  would write {label}")
-            continue
-        result = calendar.put(segment.uid, ics)
-        verb = "created" if result.created else "updated" if result.updated else "FAILED"
-        print(f"  {verb} {label}  [HTTP {result.status}]")
-
+    run_once(args, calendar)
     return 0
-
-
-def _imap_missing(missing: list[str]) -> bool:
-    return any(name.startswith("IMAP_") for name in missing)
 
 
 if __name__ == "__main__":

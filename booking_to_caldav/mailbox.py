@@ -11,6 +11,8 @@ import email
 import email.policy
 import imaplib
 import re
+import socket
+import time
 from datetime import date, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
@@ -129,3 +131,54 @@ class Mailbox:
                 )
             )
         return messages
+
+    @property
+    def supports_idle(self) -> bool:
+        if self._connection is None:
+            return False
+        return "IDLE" in getattr(self._connection, "capabilities", ())
+
+    def wait_for_mail(self, timeout: int = 540) -> bool:
+        """Block until the server announces new mail, or until timeout.
+
+        Uses IMAP IDLE (RFC 2177): the connection stays open and the server
+        pushes an untagged EXISTS when something arrives, so there is no
+        polling. IDLE is re-issued by the caller well inside the 29 minute
+        limit the RFC sets. Returns True if mail arrived.
+
+        Falls back to sleeping when the server does not advertise IDLE.
+        """
+        connection = self._connection
+        if connection is None:
+            raise RuntimeError("use Mailbox as a context manager")
+        if not self.supports_idle:
+            time.sleep(timeout)
+            return True  # let the caller re-scan; it is cheap and idempotent
+
+        tag = connection._new_tag()
+        connection.send(b"%s IDLE\r\n" % tag)
+        if not connection.readline().startswith(b"+"):
+            raise RuntimeError("server refused IDLE")
+
+        stream = connection.socket()
+        previous_timeout = stream.gettimeout()
+        arrived = False
+        try:
+            stream.settimeout(timeout)
+            while True:
+                line = connection.readline()
+                if not line:
+                    break
+                if b"EXISTS" in line or b"RECENT" in line:
+                    arrived = True
+                    break
+        except (socket.timeout, TimeoutError, OSError):
+            pass
+        finally:
+            try:
+                stream.settimeout(previous_timeout)
+                connection.send(b"DONE\r\n")
+                connection._command_complete("IDLE", tag)
+            except Exception:
+                pass
+        return arrived

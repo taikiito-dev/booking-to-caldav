@@ -46,11 +46,17 @@ $EDITOR .env
 # parse and print, write nothing
 python3 -m booking_to_caldav --dry-run
 
-# write to the calendar
+# run once and exit
 python3 -m booking_to_caldav
+
+# stay connected and react when mail arrives
+python3 -m booking_to_caldav --watch
 
 # look further back, or at another folder
 python3 -m booking_to_caldav --days 365 --limit 500 --folder Archive
+
+# flights that already departed are skipped; this writes them anyway
+python3 -m booking_to_caldav --include-past
 
 # inspect the generated iCalendar text
 python3 -m booking_to_caldav --dry-run --show-ics
@@ -59,7 +65,28 @@ python3 -m booking_to_caldav --dry-run --show-ics
 python3 -m booking_to_caldav --list-parsers
 ```
 
-Run it on a schedule with cron:
+## Running continuously
+
+`--watch` uses IMAP IDLE (RFC 2177). The connection is held open and the
+server sends an untagged `EXISTS` when mail arrives, so a confirmation becomes
+an event within seconds without polling. IDLE is re-issued every nine minutes,
+inside the twenty-nine minute limit the RFC sets. Between arrivals the process
+is blocked on a socket read: one open connection, no CPU.
+
+A dropped connection is expected rather than exceptional — servers, networks
+and restarts all end IDLE sessions. The watcher reconnects and re-sweeps, which
+is safe because writes are idempotent.
+
+```sh
+sudo useradd --system --home /srv/booking-to-caldav booking-to-caldav
+sudo cp -r . /srv/booking-to-caldav
+sudo install -m 600 -o booking-to-caldav .env /srv/booking-to-caldav/.env
+sudo cp deploy/booking-to-caldav.service /etc/systemd/system/
+sudo systemctl enable --now booking-to-caldav
+journalctl -u booking-to-caldav -f
+```
+
+`cron` still works if a daily sweep is preferable to a resident process:
 
 ```cron
 15 6 * * * cd /srv/booking-to-caldav && /usr/bin/python3 -m booking_to_caldav >> /var/log/booking-to-caldav.log 2>&1
@@ -106,6 +133,23 @@ Nothing else needs to change. `Segment` and the iCalendar writer are shared.
 If a confirmation from a supported sender is not picked up, the body is what
 makes it fixable — redact the booking reference, names, seat numbers, payment
 details and the `saacrypt`/tracking URLs before attaching it.
+
+## Troubleshooting
+
+**Every calendar request returns 403, but the same request from curl works.**
+Something in front of the calendar — a WAF, Cloudflare, a reverse proxy rule —
+is blocking the client by name. `urllib`'s default `Python-urllib/3.x` is a
+common blocklist entry. This project sends its own `User-Agent` for that
+reason; if a deployment still rejects it, allow that string at the proxy.
+
+**`OPTIONS` returns 403 while `PUT` succeeds.** Proxies in front of CalDAV
+often answer `OPTIONS` themselves. That makes it useless as a liveness test,
+which is why `check()` uses `PROPFIND` and expects 207.
+
+**A confirmation is not picked up.** Run with `--dry-run --days 365 --folder
+Archive` to widen the search, and `--list-parsers` to confirm the sender is
+supported at all. Flights that already departed are skipped unless
+`--include-past` is given.
 
 ## Tests
 
