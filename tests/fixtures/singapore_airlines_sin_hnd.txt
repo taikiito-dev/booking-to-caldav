@@ -1,0 +1,89 @@
+[image: Singapore Airlines] <https://singaporeair.com>
+
+  Your booking is confirmed
+
+BOOKING REFERENCE
+ABCDEF
+Manage booking
+<https://singaporeair.com/managebooking?saacrypt=REDACTED>
+
+Dear Mr Passenger Name,
+
+You're all set for your next trip! This email has all the details of your
+booking on singaporeair.com, and your e-ticket and receipt are attached.
+
+Itinerary
+
+Depart
+
+SQ 634 • Airbus A350-900
+
+Economy
+
+24 Dec (Wed)
+
+SIN 14:05
+
+Singapore
+
+Changi
+Terminal 2
+
+24 Dec (Wed)
+
+HND 21:40
+
+Tokyo
+
+Haneda Intl
+Terminal 3
+
+Return
+
+SQ 633 • Airbus A350-900
+
+Economy
+
+04 Jan (Sun)
+
+HND 16:40
+
+Tokyo
+
+Haneda Intl
+Terminal 3
+
+04 Jan (Sun)
+
+SIN 23:20
+
+Singapore
+
+Changi
+
+Passenger Manage preferences
+<https://singaporeair.com/managebooking?saacrypt=REDACTED>
+
+1.  Mr Passenger Name
+
+SIN - HND
+
+Seat 47G Forward Zone Seat
+
+Baggage
+30kg
+
+HND - SIN
+
+Seat 63G Standard Seat
+
+Baggage
+30kg
+
+Summary of fare conditions
+
+SIN - HND Economy Flexi
+------------------------------
+
+HND - SIN Economy Flexi
+------------------------------
