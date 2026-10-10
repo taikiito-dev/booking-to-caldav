@@ -30,6 +30,30 @@ def _decoded_header(message: Message, name: str) -> str:
         return raw
 
 
+def _calendar_parts(message: Message) -> tuple[str, ...]:
+    """Every text/calendar part, decoded.
+
+    Some senders attach the invitation as application/ics instead of
+    declaring text/calendar, so the filename is checked too.
+    """
+    found = []
+    for part in message.walk():
+        filename = (part.get_filename() or "").lower()
+        if part.get_content_type() != "text/calendar" and not filename.endswith(
+            ".ics"
+        ):
+            continue
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            found.append(payload.decode(charset, errors="replace"))
+        except LookupError:
+            found.append(payload.decode("utf-8", errors="replace"))
+    return tuple(found)
+
+
 def _body_text(message: Message) -> str:
     """Prefer the text/plain alternative; fall back to de-tagged HTML."""
     plain: list[str] = []
@@ -128,6 +152,7 @@ class Mailbox:
                     sender=_decoded_header(message, "From"),
                     body=_body_text(message),
                     received=_received_date(message, date.today()),
+                    calendars=_calendar_parts(message),
                 )
             )
         return messages

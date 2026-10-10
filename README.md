@@ -1,10 +1,10 @@
 # booking-to-caldav
 
-Turns airline booking confirmation emails into events on a CalDAV calendar.
+Turns booking confirmation emails into events on a CalDAV calendar.
 
 It connects to a mailbox over IMAP, reads messages without marking them as
-read, extracts the flight segments it recognises, and writes one event per leg
-to a CalDAV collection.
+read, extracts the bookings it recognises, and writes them to a CalDAV
+collection.
 
 ```
 IMAP (read-only)  →  parser  →  iCalendar  →  CalDAV (PUT)
@@ -16,7 +16,24 @@ Python 3.9+, standard library only. No packages to install.
 
 | Sender | Format |
 | --- | --- |
+| any | a calendar invitation (`.ics`) attached to the email |
 | `booking@singaporeair.com` | "Your booking confirmation ABCDEF" |
+
+The first row covers more than it looks like. Appointment platforms —
+clinics, barbers, some restaurant systems — attach an invitation, and an
+invitation states its own start, end and timezone. So that parser needs no
+knowledge of the sender at all, and a new platform usually works on the day
+it appears.
+
+`METHOD:CANCEL` and `METHOD:REPLY` are ignored: removing an event the user
+may have edited is a larger decision than adding one, and a reply is somebody
+else's answer rather than a booking. A repeating invitation contributes its
+first occurrence, with a note in the description saying so.
+
+Invitations are written with their own namespaced UID rather than the
+sender's. Reusing the sender's would overwrite the copy a mail client created
+when the invitation was accepted, replacing a complete event — attendees and
+all — with this reconstruction of it.
 
 Each sender is a module under `booking_to_caldav/parsers/`. Adding one is
 described in [Adding a parser](#adding-a-parser).
@@ -41,6 +58,7 @@ $EDITOR .env
 | `CALDAV_URL_TRAVEL` | optional; where flights, trains and hotels go |
 | `CALDAV_URL_LOCAL` | optional; where appointments near home go |
 | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | HTTP Basic |
+| `DEFAULT_TIMEZONE` | IANA name, for invitations that state no zone at all; defaults to `UTC` |
 
 ### Two kinds of booking
 

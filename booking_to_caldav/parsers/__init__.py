@@ -20,6 +20,12 @@ class Email:
     sender: str
     body: str
     received: date
+    calendars: tuple[str, ...] = ()
+    """Decoded text/calendar parts, if the email carried any.
+
+    An invitation states its own times and timezone, so a parser that reads
+    one does not have to understand the prose around it.
+    """
 
 
 class Parser:
@@ -45,7 +51,8 @@ def register(parser: Parser) -> Parser:
 def _load() -> None:
     if _REGISTRY:
         return
-    from . import singapore_airlines  # noqa: F401  (registers on import)
+    from . import ics_invitation  # noqa: F401  (registers on import)
+    from . import singapore_airlines  # noqa: F401
 
 
 def all_parsers() -> list[Parser]:

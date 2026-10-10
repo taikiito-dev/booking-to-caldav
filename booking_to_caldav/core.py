@@ -201,6 +201,63 @@ class Segment:
         digest = hashlib.sha1(seed.encode()).hexdigest()[:10]
         return f"{self.booking_ref.lower()}-{self.flight.lower()}-{digest}@booking-to-caldav"
 
+    def to_event(self) -> "Event":
+        return _segment_to_event(self)
+
+
+@dataclass(frozen=True)
+class Event:
+    """What actually gets written. Parsers produce these, directly or via a
+    richer type of their own, so the writer never needs to know whether it is
+    looking at a flight or a dentist."""
+
+    uid: str
+    summary: str
+    start: datetime          # timezone-aware, or naive date when all_day
+    end: datetime
+    category: str = LOCAL
+    location: str | None = None
+    details: tuple[str, ...] = ()
+    label: str = ""          # one line for the log
+    all_day: bool = False
+
+    def to_event(self) -> "Event":
+        return self
+
+
+def _segment_to_event(segment: "Segment") -> Event:
+    details = [f"Booking reference: {segment.booking_ref}"]
+    if segment.cabin:
+        details.append(f"Cabin: {segment.cabin}")
+    if segment.aircraft:
+        details.append(f"Aircraft: {segment.aircraft}")
+    if segment.origin_terminal:
+        details.append(f"Departs {segment.origin} terminal {segment.origin_terminal}")
+    if segment.destination_terminal:
+        details.append(
+            f"Arrives {segment.destination} terminal {segment.destination_terminal}"
+        )
+    details.append(
+        f"Local times: {segment.depart_local:%Y-%m-%d %H:%M} {segment.origin} "
+        f"→ {segment.arrive_local:%Y-%m-%d %H:%M} {segment.destination}"
+    )
+    if segment.source:
+        details.append(f"Imported by booking-to-caldav from: {segment.source}")
+
+    return Event(
+        uid=segment.uid,
+        summary=f"{segment.flight} {segment.origin} → {segment.destination}",
+        start=segment.depart_utc,
+        end=segment.arrive_utc,
+        category=segment.category,
+        location=segment.origin,
+        details=tuple(details),
+        label=(
+            f"{segment.flight} {segment.origin}->{segment.destination} "
+            f"{segment.depart_local:%Y-%m-%d %H:%M} ({segment.booking_ref})"
+        ),
+    )
+
 
 def _ics_escape(value: str) -> str:
     return (
@@ -229,31 +286,28 @@ def _fold(line: str) -> str:
 
 
 def _stamp(value: datetime) -> str:
+    """Render as UTC.
+
+    The trailing Z is a claim about the zone, so the value has to be moved
+    into it first. Appending Z to a local time is off by the offset — eight
+    hours, for an appointment stated in Singapore time.
+    """
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc)
     return value.strftime("%Y%m%dT%H%M%SZ")
 
 
-def build_ics(segment: Segment, now: datetime | None = None) -> str:
-    """Render one segment as a complete single-event VCALENDAR."""
+def build_ics(entry, now: datetime | None = None) -> str:
+    """Render anything with a to_event() as a single-event VCALENDAR."""
     now = now or datetime.now(timezone.utc)
-    summary = f"{segment.flight} {segment.origin} → {segment.destination}"
+    event = entry.to_event()
 
-    details = [f"Booking reference: {segment.booking_ref}"]
-    if segment.cabin:
-        details.append(f"Cabin: {segment.cabin}")
-    if segment.aircraft:
-        details.append(f"Aircraft: {segment.aircraft}")
-    if segment.origin_terminal:
-        details.append(f"Departs {segment.origin} terminal {segment.origin_terminal}")
-    if segment.destination_terminal:
-        details.append(
-            f"Arrives {segment.destination} terminal {segment.destination_terminal}"
-        )
-    details.append(
-        f"Local times: {segment.depart_local:%Y-%m-%d %H:%M} {segment.origin} "
-        f"→ {segment.arrive_local:%Y-%m-%d %H:%M} {segment.destination}"
-    )
-    if segment.source:
-        details.append(f"Imported by booking-to-caldav from: {segment.source}")
+    if event.all_day:
+        starts = f"DTSTART;VALUE=DATE:{event.start:%Y%m%d}"
+        ends = f"DTEND;VALUE=DATE:{event.end:%Y%m%d}"
+    else:
+        starts = f"DTSTART:{_stamp(event.start)}"
+        ends = f"DTEND:{_stamp(event.end)}"
 
     lines = [
         "BEGIN:VCALENDAR",
@@ -261,15 +315,15 @@ def build_ics(segment: Segment, now: datetime | None = None) -> str:
         f"PRODID:{PRODID}",
         "CALSCALE:GREGORIAN",
         "BEGIN:VEVENT",
-        f"UID:{segment.uid}",
+        f"UID:{event.uid}",
         f"DTSTAMP:{_stamp(now)}",
-        f"DTSTART:{_stamp(segment.depart_utc)}",
-        f"DTEND:{_stamp(segment.arrive_utc)}",
-        f"SUMMARY:{_ics_escape(summary)}",
-        f"LOCATION:{_ics_escape(segment.origin)}",
-        f"DESCRIPTION:{_ics_escape(chr(10).join(details))}",
-        "TRANSP:OPAQUE",
-        "END:VEVENT",
-        "END:VCALENDAR",
+        starts,
+        ends,
+        f"SUMMARY:{_ics_escape(event.summary)}",
     ]
+    if event.location:
+        lines.append(f"LOCATION:{_ics_escape(event.location)}")
+    if event.details:
+        lines.append(f"DESCRIPTION:{_ics_escape(chr(10).join(event.details))}")
+    lines += ["TRANSP:OPAQUE", "END:VEVENT", "END:VCALENDAR"]
     return "\r\n".join(_fold(line) for line in lines) + "\r\n"

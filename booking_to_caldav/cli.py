@@ -119,24 +119,27 @@ def publish(
     now = datetime.now(timezone.utc)
     written = 0
 
-    for segment in segments:
-        label = (
-            f"{segment.flight} {segment.origin}->{segment.destination} "
-            f"{segment.depart_local:%Y-%m-%d %H:%M} ({segment.booking_ref})"
-        )
-        if not include_past and segment.depart_utc < now:
+    for entry in segments:
+        event = entry.to_event()
+        label = event.label or event.summary
+        # An all-day event carries a naive date; read it as UTC for the
+        # past check rather than refusing to compare.
+        moment = event.start
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        if not include_past and moment < now:
             log(f"  past, skipped {label}")
             continue
 
-        ics = build_ics(segment, now=now)
+        ics = build_ics(event, now=now)
         if show_ics:
             print(ics)
         if destinations is None:
-            log(f"  would write {label} -> {calendar_url_for(segment.category)}")
+            log(f"  would write {label} -> {calendar_url_for(event.category)}")
             continue
 
-        calendar = destinations.for_category(segment.category)
-        result = calendar.put(segment.uid, ics)
+        calendar = destinations.for_category(event.category)
+        result = calendar.put(event.uid, ics)
         if result.ok:
             written += 1
             verb = "created" if result.created else "updated"
