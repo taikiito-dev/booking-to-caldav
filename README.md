@@ -130,9 +130,13 @@ Attachments are skipped.
 
 Nothing else needs to change. `Segment` and the iCalendar writer are shared.
 
-If a confirmation from a supported sender is not picked up, the body is what
-makes it fixable — redact the booking reference, names, seat numbers, payment
-details and the `saacrypt`/tracking URLs before attaching it.
+If you would rather not write one, open an issue with the redacted email body
+and that is enough to work from. There are two issue forms — one for a sender
+that is not read yet, one for a missing airport code — and both list what to
+remove before pasting.
+
+A parser cannot be written from a description of the layout. The line breaks
+and the exact wording are the whole problem.
 
 ## Troubleshooting
 

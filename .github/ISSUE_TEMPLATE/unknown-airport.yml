@@ -1,0 +1,34 @@
+name: An airport code is missing
+description: The run stopped with "no timezone known for airport"
+labels: ["airport"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Airline emails print local clock times with no timezone, so every
+        airport has to be mapped to an IANA timezone name by hand. An
+        unmapped code raises rather than guessing, because guessing would
+        silently put the event at the wrong hour.
+
+        This is a one line change in `AIRPORT_TZ` in
+        `booking_to_caldav/core.py` if you would like to open the pull
+        request yourself.
+
+  - type: input
+    id: code
+    attributes:
+      label: IATA code
+      placeholder: CTU
+    validations:
+      required: true
+
+  - type: input
+    id: timezone
+    attributes:
+      label: IANA timezone name
+      description: >
+        The name from the tz database, e.g. Asia/Shanghai. Not an offset —
+        offsets change with daylight saving and the name does not.
+      placeholder: Asia/Shanghai
+    validations:
+      required: true

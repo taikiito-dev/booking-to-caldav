@@ -1,0 +1,76 @@
+name: A confirmation was not turned into an event
+description: An airline, hotel or rail confirmation that this tool does not read yet
+labels: ["parser"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The email body is what makes this fixable. A parser cannot be written
+        from a description of the layout — the line breaks and the exact
+        wording are the whole problem.
+
+        **Remove these before pasting:**
+
+        - booking reference / PNR / confirmation number
+        - passenger names, frequent flyer numbers, seat numbers
+        - payment details and fare amounts
+        - any `?token=`, `?saacrypt=`, `/manage?...` link — these log in as you
+
+        Keep the dates, times, airport or station codes, flight or train
+        numbers and the surrounding line breaks exactly as they are. Those are
+        the parts a parser reads.
+
+  - type: input
+    id: sender
+    attributes:
+      label: Sender address
+      description: The From address, e.g. booking@example-air.com
+      placeholder: booking@example-air.com
+    validations:
+      required: true
+
+  - type: input
+    id: subject
+    attributes:
+      label: Subject line
+      description: Replace the booking reference with ABCDEF
+      placeholder: Your booking confirmation ABCDEF
+    validations:
+      required: true
+
+  - type: textarea
+    id: body
+    attributes:
+      label: Email body, redacted
+      description: >
+        The plain-text part if the email has one. If it is HTML only, say so —
+        that changes how the parser has to work.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the events should say
+      description: >
+        One line per leg, so the parsed result can be checked against what you
+        know is correct. Include the year, which the email itself often omits.
+      placeholder: |
+        XX123  SIN 14:05 -> HND 21:40, 24 December 2026
+        XX124  HND 16:40 -> SIN 23:20, 4 January 2027
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ready
+    attributes:
+      label: Would you like to write the parser yourself?
+      description: >
+        Either answer is fine. "Adding a parser" in the README is four steps
+        and the existing parser is the template.
+      options:
+        - I would rather someone else did
+        - I would like to try, happy to be pointed at the right file
+    validations:
+      required: true
