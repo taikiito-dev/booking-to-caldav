@@ -7,8 +7,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/booking-to-caldav
-EnvironmentFile=/srv/booking-to-caldav/.env
 ExecStart=/usr/bin/python3 -m booking_to_caldav --watch
+
+# No EnvironmentFile: the program reads ./.env from WorkingDirectory itself.
+# Configuring both means a password containing a quote or a '#' is parsed two
+# different ways, and systemd refuses to start the unit if the file is
+# unreadable. One mechanism is enough.
 
 # The IMAP connection will be dropped by the server, the network or a restart.
 # Always come back; the importer is idempotent so a restart cannot duplicate.
@@ -24,7 +28,8 @@ ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_INET AF_INET6
+# AF_UNIX is needed for name resolution on systems using nss sockets.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
 
 [Install]
