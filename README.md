@@ -38,7 +38,19 @@ $EDITOR .env
 | `IMAP_USERNAME`, `IMAP_PASSWORD` | an app password is enough; read access only |
 | `IMAP_FOLDER` | defaults to `INBOX` |
 | `CALDAV_URL` | the collection itself, e.g. `https://dav.example.com/you/personal` |
+| `CALDAV_URL_TRAVEL` | optional; where flights, trains and hotels go |
+| `CALDAV_URL_LOCAL` | optional; where appointments near home go |
 | `CALDAV_USERNAME`, `CALDAV_PASSWORD` | HTTP Basic |
+
+### Two kinds of booking
+
+A flight takes you away from home, and somebody else in the household may
+need to know. A haircut does not. Parsers label what they found `travel` or
+`local`, and the two optional variables above send each kind to a different
+collection. With only `CALDAV_URL` set, everything lands in one place.
+
+Every collection named is checked at startup, so a typo in either one is
+reported before any mail is read rather than on the day a booking arrives.
 
 ## Usage
 

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .calendar_sink import Calendar
-from .core import Segment, UnknownAirport, build_ics
+from .core import LOCAL, TRAVEL, Segment, UnknownAirport, build_ics
 from .mailbox import Mailbox
 from .parsers import Email, all_parsers, parse
 
@@ -111,11 +111,11 @@ def collect(messages: list[Email]) -> list[Segment]:
 
 def publish(
     segments: list[Segment],
-    calendar: Calendar | None,
+    destinations: "Destinations | None",
     include_past: bool,
     show_ics: bool,
 ) -> int:
-    """Write segments to the calendar. Returns the number of events written."""
+    """Write segments to their calendars. Returns the number of events written."""
     now = datetime.now(timezone.utc)
     written = 0
 
@@ -131,10 +131,11 @@ def publish(
         ics = build_ics(segment, now=now)
         if show_ics:
             print(ics)
-        if calendar is None:
-            log(f"  would write {label}")
+        if destinations is None:
+            log(f"  would write {label} -> {calendar_url_for(segment.category)}")
             continue
 
+        calendar = destinations.for_category(segment.category)
         result = calendar.put(segment.uid, ics)
         if result.ok:
             written += 1
@@ -146,24 +147,58 @@ def publish(
     return written
 
 
-def open_calendar(dry_run: bool) -> Calendar | None:
+def calendar_url_for(category: str) -> str:
+    """Where events of this kind go.
+
+    CALDAV_URL_TRAVEL and CALDAV_URL_LOCAL route by kind; CALDAV_URL is the
+    fallback for whatever is not routed. Setting only CALDAV_URL keeps
+    everything in one place.
+    """
+    specific = os.environ.get(f"CALDAV_URL_{category.upper()}")
+    return specific or os.environ["CALDAV_URL"]
+
+
+class Destinations:
+    """One checked, reused Calendar per distinct URL."""
+
+    def __init__(self, username: str, password: str) -> None:
+        self._username = username
+        self._password = password
+        self._calendars: dict[str, Calendar] = {}
+
+    def for_category(self, category: str) -> Calendar:
+        url = calendar_url_for(category)
+        if url not in self._calendars:
+            calendar = Calendar(url, self._username, self._password)
+            status = calendar.check()
+            if status not in (200, 207):
+                raise RuntimeError(
+                    f"{url} did not answer PROPFIND as expected (HTTP {status}); "
+                    "check it points at the collection itself and the credentials"
+                )
+            self._calendars[url] = calendar
+        return self._calendars[url]
+
+    def check_all(self, categories: tuple[str, ...]) -> None:
+        for category in categories:
+            self.for_category(category)
+
+    def describe(self) -> str:
+        return ", ".join(sorted(self._calendars))
+
+
+def open_destinations(dry_run: bool) -> Destinations | None:
     if dry_run:
         return None
-    calendar = Calendar(
-        url=os.environ["CALDAV_URL"],
+    destinations = Destinations(
         username=os.environ["CALDAV_USERNAME"],
         password=os.environ["CALDAV_PASSWORD"],
     )
-    status = calendar.check()
-    if status not in (200, 207):
-        raise RuntimeError(
-            f"calendar did not answer PROPFIND as expected (HTTP {status}); "
-            "check CALDAV_URL points at the collection and the credentials are right"
-        )
-    return calendar
+    destinations.check_all((TRAVEL, LOCAL))
+    return destinations
 
 
-def run_once(args: argparse.Namespace, calendar: Calendar | None) -> int:
+def run_once(args: argparse.Namespace, destinations: "Destinations | None") -> int:
     with Mailbox(
         host=os.environ["IMAP_HOST"],
         port=int(os.environ.get("IMAP_PORT", "993")),
@@ -177,10 +212,10 @@ def run_once(args: argparse.Namespace, calendar: Calendar | None) -> int:
     if not segments:
         log("no flight segments found")
         return 0
-    return publish(segments, calendar, args.include_past, args.show_ics)
+    return publish(segments, destinations, args.include_past, args.show_ics)
 
 
-def run_watch(args: argparse.Namespace, calendar: Calendar | None) -> int:
+def run_watch(args: argparse.Namespace, destinations: "Destinations | None") -> int:
     """Open the mailbox once and let the server announce arrivals."""
     while True:
         try:
@@ -196,7 +231,7 @@ def run_watch(args: argparse.Namespace, calendar: Calendar | None) -> int:
 
                 messages = mailbox.recent(days=args.days, limit=args.limit)
                 log(f"initial sweep: {len(messages)} message(s)")
-                publish(collect(messages), calendar, args.include_past, args.show_ics)
+                publish(collect(messages), destinations, args.include_past, args.show_ics)
 
                 while True:
                     arrived = mailbox.wait_for_mail(IDLE_SECONDS)
@@ -205,7 +240,7 @@ def run_watch(args: argparse.Namespace, calendar: Calendar | None) -> int:
                     log("mail arrived")
                     fresh = mailbox.recent(days=1, limit=20)
                     publish(
-                        collect(fresh), calendar, args.include_past, args.show_ics
+                        collect(fresh), destinations, args.include_past, args.show_ics
                     )
         except KeyboardInterrupt:
             log("stopped")
@@ -231,15 +266,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        calendar = open_calendar(args.dry_run)
+        destinations = open_destinations(args.dry_run)
     except RuntimeError as error:
         print(str(error), file=sys.stderr)
         return 1
+    if destinations:
+        log(f"destinations: {destinations.describe()}")
 
     if args.watch:
-        return run_watch(args, calendar)
+        return run_watch(args, destinations)
 
-    run_once(args, calendar)
+    run_once(args, destinations)
     return 0
 
 

@@ -145,6 +145,21 @@ def resolve_year(
     return matches[0].year
 
 
+TRAVEL = "travel"
+"""Takes you away from home: flights, trains, hotels.
+
+Worth a household calendar someone else can see.
+"""
+
+LOCAL = "local"
+"""Happens where you live: a barber, a dentist, a restaurant booking.
+
+Nobody else needs it, so it belongs on a private calendar. Parsers declare
+which kind of thing they found and the destination follows from that, rather
+than every event landing in one place.
+"""
+
+
 @dataclass(frozen=True)
 class Segment:
     """One flight leg, as printed in a confirmation email."""
@@ -161,6 +176,7 @@ class Segment:
     origin_terminal: str | None = None
     destination_terminal: str | None = None
     source: str = ""      # parser name, for the event description
+    category: str = TRAVEL  # which calendar this belongs on
 
     @property
     def flight(self) -> str:
