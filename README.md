@@ -255,6 +255,12 @@ The fixtures are real email layouts with identifying details removed.
 The same command runs in CI on Python 3.9 through 3.13, with no install step,
 so a green badge also confirms the project still needs no packages.
 
+## How this was written
+
+Claude Code wrote the code in this repository. I decided what it should do and
+ran it against my own mail; the design notes above are mine, including any
+error in them.
+
 ## License
 
 MIT
