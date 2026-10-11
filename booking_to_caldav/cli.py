@@ -18,7 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .calendar_sink import Calendar
-from .core import LOCAL, TRAVEL, Segment, UnknownAirport, build_ics
+from .core import (
+    LOCAL,
+    TRAVEL,
+    Segment,
+    UnknownAirport,
+    UnknownStayLocation,
+    build_ics,
+)
 from .mailbox import Mailbox
 from .parsers import Email, all_parsers, parse
 
@@ -101,7 +108,7 @@ def collect(messages: list[Email]) -> list[Segment]:
     for message in messages:
         try:
             found = parse(message)
-        except UnknownAirport as error:
+        except (UnknownAirport, UnknownStayLocation) as error:
             log(f"  skipped {message.subject!r}: {error}")
             continue
         if found:

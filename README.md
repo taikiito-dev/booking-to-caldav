@@ -40,6 +40,39 @@ all — with this reconstruction of it.
 Each sender is a module under `booking_to_caldav/parsers/`. Adding one is
 described in [Adding a parser](#adding-a-parser).
 
+## Hotels
+
+A hotel booking is not one event. Taken literally it is a single bar from
+15:00 on one day to 12:00 on the next, which covers two days and hides
+everything else on them. The question a calendar is being asked is "where are
+we sleeping on the 6th", so a stay is written as one short evening block per
+night, and the real check-in and check-out times go in the description, where
+they are read once, at the desk.
+
+An airline email gives away its timezone through the IATA code. A hotel email
+does not: it says the times are "hotel local time", which is true and
+useless. The address is the only handle, so `core.STAY_TZ_HINTS` maps
+substrings of it to zones, and an address that matches nothing raises rather
+than guessing. A stay written to the wrong hour is worse than a stay that was
+not written.
+
+## Forwards
+
+Not every booking in a household is made by the person running this. A
+confirmation lands in somebody else's mailbox and arrives here as a forward,
+so the sender is a person and the subject starts with `Fwd:` — and every
+parser matches on the sender, which means a forward matches nothing at all.
+
+So when no parser claims an email, `parsers.forwarded` strips one layer off:
+it finds the quoted header block, reads the original sender, subject and date
+out of it, and offers the parsers an email that looks like the one that would
+have arrived directly. The original `Date:` matters as well as the sender,
+because the year inference above leans on when the email was sent, and a
+forward can be weeks later than the booking.
+
+This happens for any parser, present or future. A spouse's flight is the same
+problem as a spouse's hotel.
+
 ## Setup
 
 ```sh
@@ -173,9 +206,11 @@ Attachments are skipped.
 
 ## Adding a parser
 
-1. Copy `booking_to_caldav/parsers/singapore_airlines.py`.
-2. Implement `matches(email)` and `parse(email) -> list[Segment]`, then call
-   `register()` at the bottom of the module.
+1. Copy `booking_to_caldav/parsers/singapore_airlines.py` for a flight, or
+   `booking_to_caldav/parsers/trip_com_hotel.py` for a hotel.
+2. Implement `matches(email)` and `parse(email)`, then call `register()` at
+   the bottom of the module. Return `Segment`s for flights, or `Event`s — a
+   `Stay` produces them — for anything else.
 3. Import the module in `_load()` in `booking_to_caldav/parsers/__init__.py`.
 4. Save an anonymised copy of the email body under `tests/fixtures/` and add a
    test beside `tests/test_singapore_airlines.py`.

@@ -53,6 +53,7 @@ def _load() -> None:
         return
     from . import ics_invitation  # noqa: F401  (registers on import)
     from . import singapore_airlines  # noqa: F401
+    from . import trip_com_hotel  # noqa: F401
 
 
 def all_parsers() -> list[Parser]:
@@ -60,9 +61,26 @@ def all_parsers() -> list[Parser]:
     return list(_REGISTRY)
 
 
+MAX_FORWARD_DEPTH = 3
+"""A forward of a forward of a forward is already unusual; stop there."""
+
+
 def parse(email: Email) -> list[Segment]:
-    """Return segments from the first parser that claims this email."""
-    for parser in all_parsers():
-        if parser.matches(email):
-            return parser.parse(email)
+    """Return segments from the first parser that claims this email.
+
+    If nothing claims it, the email may be a forward — a booking somebody else
+    made, passed along — in which case the original is unwrapped and offered to
+    the parsers again.
+    """
+    from .forwarded import unwrap
+
+    current = email
+    for _ in range(MAX_FORWARD_DEPTH + 1):
+        for parser in all_parsers():
+            if parser.matches(current):
+                return parser.parse(current)
+        inner = unwrap(current)
+        if inner is None:
+            return []
+        current = inner
     return []

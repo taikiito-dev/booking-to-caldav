@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import email
 import email.policy
+import html
 import imaplib
 import re
 import select
@@ -57,7 +58,7 @@ def _calendar_parts(message: Message) -> tuple[str, ...]:
 def _body_text(message: Message) -> str:
     """Prefer the text/plain alternative; fall back to de-tagged HTML."""
     plain: list[str] = []
-    html: list[str] = []
+    html_parts: list[str] = []
 
     for part in message.walk():
         if part.get_content_maintype() == "multipart":
@@ -75,11 +76,14 @@ def _body_text(message: Message) -> str:
         if part.get_content_subtype() == "plain":
             plain.append(text)
         elif part.get_content_subtype() == "html":
-            html.append(text)
+            html_parts.append(text)
 
     if plain:
         return "\n".join(plain)
-    stripped = HTML_TAG.sub("\n", "\n".join(html))
+    # Entities have to go too. A de-tagged body still reads "&quot;Trip.com&quot;
+    # &lt;no-reply@...&gt;", and a parser looking for an address in there finds
+    # punctuation instead.
+    stripped = html.unescape(HTML_TAG.sub("\n", "\n".join(html_parts)))
     return re.sub(r"\n{3,}", "\n\n", stripped)
 
 
